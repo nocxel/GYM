@@ -2,7 +2,6 @@ package com.kh.gym.dao;
 
 import com.kh.gym.util.Common;
 import com.kh.gym.vo.PTDataVO;
-
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +15,7 @@ import java.util.Scanner;
 
 public class PTDataDAO {
     Connection conn = null;
+    Statement stmt = null;
     PreparedStatement pstmt = null;
     ResultSet rSet = null;
 
@@ -24,9 +24,10 @@ public class PTDataDAO {
         try {
             conn = Common.getConnection();
             StringBuilder sql = new StringBuilder();
-            sql.append("SELECT PT.MEMBER_ID, M.MEMBER_NAME, T.TRAINER_NAME, PT.PT_DATE,PT.PT_REMAIN ");
+            sql.append("SELECT PT.MEMBER_ID, M.MEMBER_NAME, T.TRAINER_NAME, TO_CHAR( PT.PT_DATE, 'YYYY-MM-DD') AS PT_DATE, PT.PT_REMAIN ");
             sql.append("FROM PT_DATA PT, MEMBERS M, TRAINERS T ");
-            sql.append("WHERE PT.MEMBER_ID = M.MEMBER_ID AND T.TRAINER_ID = PT.TRAINER_ID");
+            sql.append("WHERE PT.MEMBER_ID = M.MEMBER_ID AND T.TRAINER_ID = PT.TRAINER_ID ");
+            sql.append("ORDER BY PT.PT_DATE DESC ");
             pstmt = conn.prepareStatement(sql.toString());
             listAddResultSet(list);
         } catch (Exception e) {
@@ -40,9 +41,10 @@ public class PTDataDAO {
         try {
             conn = Common.getConnection();
             StringBuilder sql = new StringBuilder();
-            sql.append("SELECT PT.MEMBER_ID, M.MEMBER_NAME, T.TRAINER_NAME, PT.PT_DATE,PT.PT_REMAIN ");
+            sql.append("SELECT PT.MEMBER_ID, M.MEMBER_NAME, T.TRAINER_NAME, TO_CHAR(PT.PT_DATE, 'YYYY-MM-DD' AS PT_DATE, PT.PT_REMAIN ");
             sql.append("FROM PT_DATA PT, MEMBERS M, TRAINERS T ");
-            sql.append("WHERE PT.MEMBER_ID = M.MEMBER_ID AND T.TRAINER_ID = PT.TRAINER_ID AND PT.MEMBER_ID = ?");
+            sql.append("WHERE PT.MEMBER_ID = M.MEMBER_ID AND T.TRAINER_ID = PT.TRAINER_ID AND PT.MEMBER_ID = ?" );
+            sql.append("ORDER BY PT.PT_DATE DESC ");
             pstmt = conn.prepareStatement(sql.toString());
             pstmt.setInt(1, memberID);
             listAddResultSet(list);
@@ -74,9 +76,17 @@ public class PTDataDAO {
 
     // 출력문
     public void PTDataView(List<PTDataVO> list) {
-        System.out.println("\t번호\t회원번호\t회원이름\t트레이너\t날짜\t남은PT횟수");
+        System.out.println("| 번호 | 회원번호 | 회원이름 | 트레이너 | 날짜 | 남은PT횟수 |");
+        System.out.println("======================================================");
         for (PTDataVO m : list) {
-            System.out.println(m.getRowNo() + m.getMemberID() + m.getMemberName() + m.getTrainerName() + m.getPtDate() + m.getPtRemain());
+            StringBuilder out = new StringBuilder();
+            out.append("| " + m.getRowNo() + " | ");
+            out.append(m.getMemberID() + " | ");
+            out.append(m.getMemberName() + " | ");
+            out.append(m.getTrainerName() + " | ");
+            out.append(m.getPtDate() + " | ");
+            out.append(m.getPtRemain() + " |");
+            System.out.println(out);
             System.out.println("==============================");
 
 
@@ -84,7 +94,8 @@ public class PTDataDAO {
     }
 
 
-    // PT 기록 시 PT_DATA에 INSERT하는 메소드
+    // PT 기록 시 PT_DATA에 INSERT 하고 MEMBERS 의 PT_REMAIN을 1 감소시키는 메소드
+    // 쿼리문을 2개 써야한다.
     public void PTDataInsert() {
         Scanner sc = new Scanner(System.in);
         System.out.print("회원 번호 입력 : ");
@@ -94,7 +105,41 @@ public class PTDataDAO {
         System.out.print("날짜 입력(yyyy-mm-dd) : ");
         String ptDate = sc.next();
         // DATE 는 JAVA.SQL.DATE를 사용하는 것도?
+        try {
+            conn = Common.getConnection();
+            String sql = String.format("SELECT PT_REMAIN FROM MEMBERS WHERE MEMBER_ID = %d", memberID);
+            stmt = conn.createStatement();
+            rSet = stmt.executeQuery(sql);
+            // 에러처리가 힘들어서 PT_REMAIN값을 받아와서 체크합시다. ㅠㅠㅠ
+            if (rSet.next() && rSet.getInt("PT_REMAIN") >= 1) {
+                // PT_Data 테이블에 INSERT 하는 sql1
+                StringBuilder sql1 = new StringBuilder();
+                sql1.append("INSERT INTO PT_DATA(MEMBER_ID, TRAINER_ID, PT_DATE, PT_REMAIN) ");
+                sql1.append("VALUES ( ?, ?, ?, (SELECT PT_REMAIN - 1 FROM MEMBERS WHERE MEMBER_ID = ? ))");
+                pstmt = conn.prepareStatement(sql1.toString());
+                pstmt.setInt(1, memberID);
+                pstmt.setInt(2, trainerID);
+                pstmt.setString(3, ptDate);
+                pstmt.setInt(4, memberID);
 
+                pstmt.executeUpdate();
+
+//              MEMBERS 의 PT_REMAIN을 UPDATE 하는 sql2
+                String sql2 = "UPDATE MEMBERS SET PT_REMAIN = PT_REMAIN - 1 WHERE MEMBER_ID = ?";
+                pstmt = conn.prepareStatement(sql2);
+                pstmt.setInt(1, memberID);
+                pstmt.executeUpdate();
+            } else {
+                System.out.println("남은 PT횟수가 없습니다.");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        Common.close(rSet);
+        Common.close(stmt);
+        Common.close(pstmt);
+        Common.close(conn);
     }
 
 }
